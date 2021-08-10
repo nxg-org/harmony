@@ -118,7 +118,7 @@ export class RESTManager {
   }
 
   /** Token Type of the Token if any */
-  tokenType: TokenType = TokenType.Bot
+  tokenType: TokenType = TokenType.None
   /** Headers object which patch the current ones */
   headers: any = {}
   /** Optional custom User Agent (header) */

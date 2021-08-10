@@ -240,7 +240,7 @@ export class Client extends HarmonyEventEmitter<ClientEvents> {
 
     const restOptions: RESTOptions = {
       token: () => this.token,
-      tokenType: TokenType.Bot,
+      tokenType: TokenType.None,
       canary: options.canary,
       client: this
     }
@@ -340,11 +340,30 @@ export class Client extends HarmonyEventEmitter<ClientEvents> {
     } else throw new Error('No Gateway Intents were provided')
 
     this.rest.token = token
-    if (this.shard !== undefined) {
-      if (typeof this.shardCount === 'number')
-        this.shards.cachedShardCount = this.shardCount
-      await this.shards.launch(this.shard)
-    } else await this.shards.connect()
+    for (const tokenType of ['Bot', 'Bearer', new Error()])
+      try {
+        if (this.shard !== undefined) {
+          if (typeof this.shardCount === 'number')
+            this.shards.cachedShardCount = this.shardCount
+          await this.shards.launch(this.shard)
+        } else await this.shards.connect()
+        break;
+      } catch {
+        if (typeof tokenType == 'object') throw tokenType
+        else
+          this.rest = new RESTManager({
+            token: () => this.token,
+            tokenType: tokenType as TokenType,
+            canary: this.rest.canary,
+            client: this,
+            headers: this.rest.headers,
+            requestTimeout: this.rest.requestTimeout,
+            retryLimit: this.rest.retryLimit,
+            userAgent: this.rest.userAgent,
+            //@ts-ignore never always know version
+            version: this.rest.version
+          })
+      }
     await readyPromise
     return this
   }
