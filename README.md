@@ -9,6 +9,11 @@
 </p>
 <br>
 
+# imports:
+```ts
+import { Client } from 'https://raw.githubusercontent.com/nxg-org/harmony/main/mod.ts';
+```
+
 - Lightweight and easy to use.
 - Complete Object-Oriented approach.
 - Slash Commands supported.
