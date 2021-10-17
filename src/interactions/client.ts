@@ -1,35 +1,54 @@
 import {
-  SlashCommandInteraction,
+  ApplicationCommandInteraction,
   InteractionApplicationCommandResolved
-} from '../structures/slash.ts'
-import { Interaction } from '../structures/interactions.ts'
+} from '../structures/applicationCommand.ts'
+import { Interaction, InteractionChannel } from '../structures/interactions.ts'
 import {
   InteractionPayload,
   InteractionResponsePayload,
   InteractionType
 } from '../types/interactions.ts'
-import { SlashCommandOptionType } from '../types/slashCommands.ts'
+import {
+  ApplicationCommandType,
+  ApplicationCommandOptionType,
+  InteractionApplicationCommandData
+} from '../types/applicationCommand.ts'
 import type { Client } from '../client/mod.ts'
 import { RESTManager } from '../rest/mod.ts'
-import { SlashModule } from './slashModule.ts'
+import { ApplicationCommandsModule } from './commandModule.ts'
 import { verify as edverify } from 'https://deno.land/x/ed25519@1.0.1/mod.ts'
 import { User } from '../structures/user.ts'
 import { HarmonyEventEmitter } from '../utils/events.ts'
 import { encodeText, decodeText } from '../utils/encoding.ts'
-import { SlashCommandsManager } from './slashCommand.ts'
+import { ApplicationCommandsManager } from './applicationCommand.ts'
+import { Application } from '../structures/application.ts'
+import { Member } from '../structures/member.ts'
+import { Guild } from '../structures/guild.ts'
+import { GuildPayload } from '../types/guild.ts'
+import { Channel } from '../structures/channel.ts'
+import { TextChannel } from '../structures/textChannel.ts'
+import { Role } from '../structures/role.ts'
+import { Message } from '../structures/message.ts'
+import { MessageComponentInteraction } from '../structures/messageComponents.ts'
 
-export type SlashCommandHandlerCallback = (
-  interaction: SlashCommandInteraction
-) => unknown
-export interface SlashCommandHandler {
+export type ApplicationCommandHandlerCallback = (
+  interaction: ApplicationCommandInteraction
+) => any // Any to include both sync and async return types
+
+export interface ApplicationCommandHandler {
   name: string
+  type?: ApplicationCommandType
   guild?: string
   parent?: string
   group?: string
-  handler: SlashCommandHandlerCallback
+  handler: ApplicationCommandHandlerCallback
 }
 
-/** Options for SlashClient */
+// Deprecated
+export type { ApplicationCommandHandlerCallback as SlashCommandHandlerCallback }
+export type { ApplicationCommandHandler as SlashCommandHandler }
+
+/** Options for InteractionsClient */
 export interface SlashOptions {
   id?: string | (() => string)
   client?: Client
@@ -40,14 +59,14 @@ export interface SlashOptions {
 }
 
 // eslint-disable-next-line @typescript-eslint/consistent-type-definitions
-export type SlashClientEvents = {
+export type InteractionsClientEvents = {
   interaction: [Interaction]
   interactionError: [Error]
   ping: []
 }
 
 /** Slash Client represents an Interactions Client which can be used without Harmony Client. */
-export class SlashClient extends HarmonyEventEmitter<SlashClientEvents> {
+export class InteractionsClient extends HarmonyEventEmitter<InteractionsClientEvents> {
   id: string | (() => string)
   client?: Client
 
@@ -62,10 +81,10 @@ export class SlashClient extends HarmonyEventEmitter<SlashClientEvents> {
   }
 
   enabled: boolean = true
-  commands: SlashCommandsManager
-  handlers: SlashCommandHandler[] = []
+  commands: ApplicationCommandsManager
+  handlers: ApplicationCommandHandler[] = []
   readonly rest!: RESTManager
-  modules: SlashModule[] = []
+  modules: ApplicationCommandsModule[] = []
   publicKey?: string
 
   constructor(options: SlashOptions) {
@@ -90,16 +109,16 @@ export class SlashClient extends HarmonyEventEmitter<SlashClientEvents> {
 
     // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-assertion
     const client = this.client as any
-    if (client?._decoratedSlash !== undefined) {
-      client._decoratedSlash.forEach((e: any) => {
+    if (client?._decoratedAppCmd !== undefined) {
+      client._decoratedAppCmd.forEach((e: any) => {
         e.handler = e.handler.bind(this.client)
         this.handlers.push(e)
       })
     }
 
     const self = this as any
-    if (self._decoratedSlash !== undefined) {
-      self._decoratedSlash.forEach((e: any) => {
+    if (self._decoratedAppCmd !== undefined) {
+      self._decoratedAppCmd.forEach((e: any) => {
         e.handler = e.handler.bind(this.client)
         self.handlers.push(e)
       })
@@ -122,7 +141,7 @@ export class SlashClient extends HarmonyEventEmitter<SlashClientEvents> {
       async (interaction) => await this._process(interaction)
     )
 
-    this.commands = new SlashCommandsManager(this)
+    this.commands = new ApplicationCommandsManager(this)
   }
 
   getID(): string {
@@ -131,19 +150,27 @@ export class SlashClient extends HarmonyEventEmitter<SlashClientEvents> {
 
   /** Adds a new Slash Command Handler */
   handle(
-    cmd: string | SlashCommandHandler,
-    handler?: SlashCommandHandlerCallback
-  ): SlashClient {
+    cmd: string | ApplicationCommandHandler,
+    handler?: ApplicationCommandHandlerCallback,
+    type?: ApplicationCommandType | keyof typeof ApplicationCommandType
+  ): InteractionsClient {
     const handle = {
       name: typeof cmd === 'string' ? cmd : cmd.name,
       ...(handler !== undefined ? { handler } : {}),
       ...(typeof cmd === 'string' ? {} : cmd)
     }
 
+    if (type !== undefined) {
+      handle.type =
+        typeof type === 'string' ? ApplicationCommandType[type] : type
+    }
+
     if (handle.handler === undefined)
       throw new Error('Invalid usage. Handler function not provided')
 
     if (
+      (handle.type === undefined ||
+        handle.type === ApplicationCommandType.CHAT_INPUT) &&
       typeof handle.name === 'string' &&
       handle.name.includes(' ') &&
       handle.parent === undefined &&
@@ -161,18 +188,18 @@ export class SlashClient extends HarmonyEventEmitter<SlashClientEvents> {
       handle.parent = sub === undefined ? undefined : root
     }
 
-    this.handlers.push(handle as any)
+    this.handlers.push(handle as ApplicationCommandHandler)
     return this
   }
 
   /** Load a Slash Module */
-  loadModule(module: SlashModule): SlashClient {
+  loadModule(module: ApplicationCommandsModule): InteractionsClient {
     this.modules.push(module)
     return this
   }
 
   /** Get all Handlers. Including Slash Modules */
-  getHandlers(): SlashCommandHandler[] {
+  getHandlers(): ApplicationCommandHandler[] {
     let res = this.handlers
     for (const mod of this.modules) {
       if (mod === undefined) continue
@@ -189,26 +216,35 @@ export class SlashClient extends HarmonyEventEmitter<SlashClientEvents> {
 
   /** Get Handler for an Interaction. Supports nested sub commands and sub command groups. */
   private _getCommand(
-    i: SlashCommandInteraction
-  ): SlashCommandHandler | undefined {
+    i: ApplicationCommandInteraction
+  ): ApplicationCommandHandler | undefined {
     return this.getHandlers().find((e) => {
+      if (
+        (e.type === ApplicationCommandType.MESSAGE ||
+          e.type === ApplicationCommandType.USER) &&
+        i.targetID !== undefined &&
+        i.name === e.name
+      ) {
+        return true
+      }
+
       const hasGroupOrParent = e.group !== undefined || e.parent !== undefined
       const groupMatched =
         e.group !== undefined && e.parent !== undefined
-          ? i.options
+          ? i.data.options
               .find(
                 (o) =>
                   o.name === e.group &&
-                  o.type === SlashCommandOptionType.SUB_COMMAND_GROUP
+                  o.type === ApplicationCommandOptionType.SUB_COMMAND_GROUP
               )
               ?.options?.find((o) => o.name === e.name) !== undefined
           : true
       const subMatched =
         e.group === undefined && e.parent !== undefined
-          ? i.options.find(
+          ? i.data.options.find(
               (o) =>
                 o.name === e.name &&
-                o.type === SlashCommandOptionType.SUB_COMMAND
+                o.type === ApplicationCommandOptionType.SUB_COMMAND
             ) !== undefined
           : true
       const nameMatched1 = e.name === i.name
@@ -221,22 +257,22 @@ export class SlashClient extends HarmonyEventEmitter<SlashClientEvents> {
   }
 
   /** Process an incoming Interaction */
-  private async _process(
-    interaction: Interaction | SlashCommandInteraction
+  async _process(
+    interaction: Interaction | ApplicationCommandInteraction
   ): Promise<void> {
     if (!this.enabled) return
 
     if (interaction.type !== InteractionType.APPLICATION_COMMAND) return
 
     const cmd =
-      this._getCommand(interaction as SlashCommandInteraction) ??
+      this._getCommand(interaction as ApplicationCommandInteraction) ??
       this.getHandlers().find((e) => e.name === '*')
 
     if (cmd === undefined) return
 
     await this.emit('interaction', interaction)
     try {
-      await cmd.handler(interaction as SlashCommandInteraction)
+      await cmd.handler(interaction as ApplicationCommandInteraction)
     } catch (e) {
       await this.emit('interactionError', e)
     }
@@ -259,7 +295,13 @@ export class SlashClient extends HarmonyEventEmitter<SlashClientEvents> {
     return edverify(signature, fullBody, this.publicKey).catch(() => false)
   }
 
-  /** Verify [Deno Std HTTP Server Request](https://deno.land/std/http/server.ts) and return Interaction. **Data present in Interaction returned by this method is very different from actual typings as there is no real `Client` behind the scenes to cache things.** */
+  /**
+   * Verify [Deno Std HTTP Server Request](https://deno.land/std/http/server.ts) and return Interaction.
+   *
+   * **Data present in Interaction returned by this method is very different from actual typings
+   * as there is no real `Client` behind the scenes to cache things.**
+   *
+   */
   async verifyServerRequest(req: {
     headers: Headers
     method: string
@@ -267,7 +309,7 @@ export class SlashClient extends HarmonyEventEmitter<SlashClientEvents> {
     respond: (options: {
       status?: number
       headers?: Headers
-      body?: any
+      body?: BodyInit
     }) => Promise<void>
   }): Promise<false | Interaction> {
     if (req.method.toLowerCase() !== 'post') return false
@@ -284,33 +326,129 @@ export class SlashClient extends HarmonyEventEmitter<SlashClientEvents> {
     try {
       const payload: InteractionPayload = JSON.parse(decodeText(rawbody))
 
-      // TODO: Maybe fix all this hackery going on here?
+      // Note: there's a lot of hacks going on here.
+
+      const client = this as unknown as Client
+
       let res
+
+      const channel =
+        payload.channel_id !== undefined
+          ? (new Channel(client, {
+              id: payload.channel_id!,
+              type: 0
+            }) as unknown as TextChannel)
+          : undefined
+
+      const user = new User(client, (payload.member?.user ?? payload.user)!)
+
+      const guild =
+        payload.guild_id !== undefined
+          ? // eslint-disable-next-line @typescript-eslint/consistent-type-assertions
+            new Guild(client, {
+              id: payload.guild_id!,
+              unavailable: true
+            } as GuildPayload)
+          : undefined
+
+      const member =
+        payload.member !== undefined
+          ? // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-assertion
+            new Member(client, payload.member, user, guild!)
+          : undefined
+
       if (payload.type === InteractionType.APPLICATION_COMMAND) {
-        res = new SlashCommandInteraction(this as any, payload, {
-          // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-          user: new User(this as any, (payload.member?.user ?? payload.user)!),
-          member: payload.member as any,
-          guild: payload.guild_id as any,
-          channel: payload.channel_id as any,
-          resolved: ((payload.data as any)
-            ?.resolved as unknown as InteractionApplicationCommandResolved) ?? {
-            users: {},
-            members: {},
-            roles: {},
-            channels: {}
-          }
+        const resolved: InteractionApplicationCommandResolved = {
+          users: {},
+          members: {},
+          roles: {},
+          channels: {},
+          messages: {}
+        }
+
+        for (const [id, data] of Object.entries(
+          // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-assertion
+          (payload.data as InteractionApplicationCommandData).resolved?.users ??
+            {}
+        )) {
+          resolved.users[id] = new User(client, data)
+        }
+
+        for (const [id, data] of Object.entries(
+          // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-assertion
+          (payload.data as InteractionApplicationCommandData).resolved
+            ?.members ?? {}
+        )) {
+          resolved.members[id] = new Member(
+            client,
+            data,
+            resolved.users[id],
+            undefined as unknown as Guild
+          )
+        }
+
+        for (const [id, data] of Object.entries(
+          // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-assertion
+          (payload.data as InteractionApplicationCommandData).resolved?.roles ??
+            {}
+        )) {
+          resolved.roles[id] = new Role(
+            client,
+            data,
+            undefined as unknown as Guild
+          )
+        }
+
+        for (const [id, data] of Object.entries(
+          // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-assertion
+          (payload.data as InteractionApplicationCommandData).resolved
+            ?.channels ?? {}
+        )) {
+          resolved.channels[id] = new InteractionChannel(client, data)
+        }
+
+        for (const [id, data] of Object.entries(
+          // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-assertion
+          (payload.data as InteractionApplicationCommandData).resolved
+            ?.messages ?? {}
+        )) {
+          resolved.messages[id] = new Message(
+            client,
+            data,
+            data.channel_id as unknown as TextChannel,
+            new User(client, data.author)
+          )
+        }
+
+        res = new ApplicationCommandInteraction(client, payload, {
+          user,
+          member,
+          guild,
+          channel,
+          resolved
+        })
+      } else if (payload.type === InteractionType.MESSAGE_COMPONENT) {
+        res = new MessageComponentInteraction(client, payload, {
+          channel,
+          guild,
+          member,
+          user,
+          message: new Message(
+            client,
+            payload.message!,
+            payload.message!.channel_id as unknown as TextChannel,
+            new User(client, payload.message!.author)
+          )
         })
       } else {
-        res = new Interaction(this as any, payload, {
-          // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-          user: new User(this as any, (payload.member?.user ?? payload.user)!),
-          member: payload.member as any,
-          guild: payload.guild_id as any,
-          channel: payload.channel_id as any
+        res = new Interaction(client, payload, {
+          user,
+          member,
+          guild,
+          channel
         })
       }
-      await this.emit('interaction', res)
+
       res._httpRespond = async (d: InteractionResponsePayload | FormData) =>
         await req.respond({
           status: 200,
@@ -320,6 +458,8 @@ export class SlashClient extends HarmonyEventEmitter<SlashClientEvents> {
           }),
           body: d instanceof FormData ? d : JSON.stringify(d)
         })
+
+      await this.emit('interaction', res)
 
       return res
     } catch (e) {
@@ -355,7 +495,12 @@ export class SlashClient extends HarmonyEventEmitter<SlashClientEvents> {
     })
   }
 
-  async verifyOpineRequest(req: any): Promise<boolean> {
+  async verifyOpineRequest<
+    T extends {
+      headers: Headers
+      body: Deno.Reader
+    }
+  >(req: T): Promise<boolean> {
     const signature = req.headers.get('x-signature-ed25519')
     const timestamp = req.headers.get('x-signature-timestamp')
     const contentLength = req.headers.get('content-length')
@@ -373,13 +518,21 @@ export class SlashClient extends HarmonyEventEmitter<SlashClientEvents> {
   }
 
   /** Middleware to verify request in Opine framework. */
-  async verifyOpineMiddleware(
-    req: any,
-    res: any,
-    next: CallableFunction
-  ): Promise<any> {
+  async verifyOpineMiddleware<
+    Req extends {
+      headers: Headers
+      body: Deno.Reader
+    },
+    Res extends {
+      setStatus: (code: number) => Res
+      end: () => Res
+    }
+  >(req: Req, res: Res, next: CallableFunction): Promise<boolean> {
     const verified = await this.verifyOpineRequest(req)
-    if (!verified) return res.setStatus(401).end()
+    if (!verified) {
+      res.setStatus(401).end()
+      return false
+    }
 
     await next()
     return true
@@ -387,7 +540,15 @@ export class SlashClient extends HarmonyEventEmitter<SlashClientEvents> {
 
   // TODO: create verifyOakMiddleware too
   /** Method to verify Request from Oak server "Context". */
-  async verifyOakRequest(ctx: any): Promise<any> {
+  async verifyOakRequest<
+    T extends {
+      request: {
+        headers: Headers
+        hasBody: boolean
+        body: () => { value: Promise<Uint8Array> }
+      }
+    }
+  >(ctx: T): Promise<boolean> {
     const signature = ctx.request.headers.get('x-signature-ed25519')
     const timestamp = ctx.request.headers.get('x-signature-timestamp')
     const contentLength = ctx.request.headers.get('content-length')
@@ -396,7 +557,7 @@ export class SlashClient extends HarmonyEventEmitter<SlashClientEvents> {
       signature === null ||
       timestamp === null ||
       contentLength === null ||
-      ctx.request.hasBody !== true
+      !ctx.request.hasBody
     ) {
       return false
     }
@@ -407,66 +568,13 @@ export class SlashClient extends HarmonyEventEmitter<SlashClientEvents> {
     if (!verified) return false
     return true
   }
-}
 
-/** Decorator to create a Slash Command handler */
-export function slash(name?: string, guild?: string) {
-  return function (client: Client | SlashClient | SlashModule, prop: string) {
+  /** Fetch Application of the Client (if Token is present) */
+  async fetchApplication(): Promise<Application> {
+    const app = await this.rest.api.oauth2.applications['@me'].get()
     // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-assertion
-    const c = client as any
-    if (c._decoratedSlash === undefined) c._decoratedSlash = []
-    const item = (client as { [name: string]: any })[prop]
-    if (typeof item !== 'function') {
-      throw new Error('@slash decorator requires a function')
-    } else
-      c._decoratedSlash.push({
-        name: name ?? prop,
-        guild,
-        handler: item
-      })
+    return new Application(this.client!, app)
   }
 }
 
-/** Decorator to create a Sub-Slash Command handler */
-export function subslash(parent: string, name?: string, guild?: string) {
-  return function (client: Client | SlashModule | SlashClient, prop: string) {
-    // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-assertion
-    const c = client as any
-    if (c._decoratedSlash === undefined) c._decoratedSlash = []
-    const item = (client as { [name: string]: any })[prop]
-    if (typeof item !== 'function') {
-      throw new Error('@subslash decorator requires a function')
-    } else
-      c._decoratedSlash.push({
-        parent,
-        name: name ?? prop,
-        guild,
-        handler: item
-      })
-  }
-}
-
-/** Decorator to create a Grouped Slash Command handler */
-export function groupslash(
-  parent: string,
-  group: string,
-  name?: string,
-  guild?: string
-) {
-  return function (client: Client | SlashModule | SlashClient, prop: string) {
-    // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-assertion
-    const c = client as any
-    if (c._decoratedSlash === undefined) c._decoratedSlash = []
-    const item = (client as { [name: string]: any })[prop]
-    if (typeof item !== 'function') {
-      throw new Error('@groupslash decorator requires a function')
-    } else
-      c._decoratedSlash.push({
-        group,
-        parent,
-        name: name ?? prop,
-        guild,
-        handler: item
-      })
-  }
-}
+export { InteractionsClient as SlashClient }

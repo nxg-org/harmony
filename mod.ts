@@ -27,7 +27,7 @@ export {
   ExtensionCommands,
   ExtensionsManager
 } from './src/commands/extension.ts'
-export { SlashModule } from './src/interactions/slashModule.ts'
+export { ApplicationCommandsModule } from './src/interactions/commandModule.ts'
 export { CommandClient, command, subcommand } from './src/commands/client.ts'
 export type { CommandClientOptions } from './src/commands/client.ts'
 export { BaseManager } from './src/managers/base.ts'
@@ -38,9 +38,9 @@ export { GatewayCache } from './src/managers/gatewayCache.ts'
 export { GuildChannelsManager } from './src/managers/guildChannels.ts'
 export { GuildManager } from './src/managers/guilds.ts'
 export * from './src/structures/base.ts'
-export * from './src/structures/slash.ts'
+export * from './src/structures/applicationCommand.ts'
 export * from './src/structures/interactions.ts'
-export * from './src/types/slashCommands.ts'
+export * from './src/types/applicationCommand.ts'
 export * from './src/types/interactions.ts'
 export * from './src/types/messageComponents.ts'
 export * from './src/structures/messageComponents.ts'
@@ -111,49 +111,12 @@ export type {
 export {
   ChannelTypes,
   OverwriteType,
-  OverrideType
+  OverrideType,
+  MessageTypes
 } from './src/types/channel.ts'
 export type { ApplicationPayload } from './src/types/application.ts'
 export type { ImageFormats, ImageSize } from './src/types/cdn.ts'
-export type {
-  OverwriteAsOptions,
-  OverwritePayload,
-  Attachment,
-  AllowedMentionType,
-  AllowedMentionsPayload,
-  ChannelMention,
-  ChannelPayload,
-  FollowedChannel,
-  GuildNewsChannelPayload,
-  GuildCategoryChannelPayload,
-  GuildChannelPayload,
-  GuildTextChannelPayload,
-  GuildVoiceChannelPayload,
-  GroupDMChannelPayload,
-  MessageOptions,
-  MessagePayload,
-  MessageInteractionPayload,
-  MessageReference,
-  MessageActivity,
-  MessageActivityTypes,
-  MessageApplication,
-  MessageFlags,
-  MessageStickerFormatTypes,
-  MessageStickerItemPayload,
-  MessageTypes,
-  OverwriteAsArg,
-  Overwrite,
-  EmbedVideo,
-  EditMessagePayload,
-  EmbedAuthor,
-  EmbedField,
-  EmbedFooter,
-  EmbedImage,
-  EmbedProvider,
-  EmbedThumbnail,
-  EmbedTypes,
-  EmbedPayload
-} from './src/types/channel.ts'
+export * from './src/types/channel.ts'
 export type { EmojiPayload } from './src/types/emoji.ts'
 export { Verification } from './src/types/guild.ts'
 export type {
@@ -219,3 +182,5 @@ export type {
 export * from './src/structures/threadChannel.ts'
 export * from './src/structures/resolvable.ts'
 export * from './src/utils/channelTypes.ts'
+export * from './src/structures/messageSticker.ts'
+export * from './src/utils/oauthURL.ts'

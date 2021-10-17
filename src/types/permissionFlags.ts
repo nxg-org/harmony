@@ -1,6 +1,6 @@
 // https://discord.com/developers/docs/topics/permissions#permissions-bitwise-permission-flags
 
-export const PermissionFlags: { [key: string]: bigint } = {
+export const PermissionFlags = {
   CREATE_INSTANT_INVITE: 1n << 0n,
   KICK_MEMBERS: 1n << 1n,
   BAN_MEMBERS: 1n << 2n,
@@ -31,11 +31,19 @@ export const PermissionFlags: { [key: string]: bigint } = {
   MANAGE_NICKNAMES: 1n << 27n,
   MANAGE_ROLES: 1n << 28n,
   MANAGE_WEBHOOKS: 1n << 29n,
+  /** @deprecated Use MANAGE_EMOJIS_AND_STICKERS instead */
   MANAGE_EMOJIS: 1n << 30n,
+  MANAGE_EMOJIS_AND_STICKERS: 1n << 30n,
+  USE_APPLICATION_COMMANDS: 1n << 31n,
+  /**
+   * Deprecated, use USE_APPLICATION_COMMANDS instead
+   * @deprecated
+   */
   USE_SLASH_COMMANDS: 1n << 31n,
   // Might be removed (as PR says)
   REQUEST_TO_SPEAK: 1n << 32n,
   MANAGE_THREADS: 1n << 34n,
   USE_PUBLIC_THREADS: 1n << 35n,
-  USE_PRIVATE_THREADS: 1n << 36n
-}
+  USE_PRIVATE_THREADS: 1n << 36n,
+  USE_EXTERNAL_STICKERS: 1n << 37n
+} as const

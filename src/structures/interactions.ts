@@ -22,7 +22,7 @@ import {
 import {
   InteractionApplicationCommandData,
   InteractionChannelPayload
-} from '../types/slashCommands.ts'
+} from '../types/applicationCommand.ts'
 import { Permissions } from '../utils/permissions.ts'
 import { SnowflakeBase } from './base.ts'
 import { Channel } from './channel.ts'
@@ -33,13 +33,14 @@ import { Member } from './member.ts'
 import { Message, MessageAttachment } from './message.ts'
 import { TextChannel } from './textChannel.ts'
 import { User } from './user.ts'
-import type { SlashCommandInteraction } from './slash.ts'
+import type { ApplicationCommandInteraction } from './applicationCommand.ts'
 import type { MessageComponentInteraction } from './messageComponents.ts'
 
 interface WebhookMessageOptions extends MessageOptions {
-  embeds?: Array<Embed | EmbedPayload>
   name?: string
   avatar?: string
+  flags?: number
+  ephemeral?: boolean
 }
 
 type AllWebhookMessageOptions = string | WebhookMessageOptions
@@ -78,7 +79,7 @@ export class InteractionChannel extends SnowflakeBase {
   }
 
   /** Resolve to actual Channel object if present in Cache */
-  async resolve<T = Channel>(): Promise<T | undefined> {
+  async resolve<T extends Channel = Channel>(): Promise<T | undefined> {
     return this.client.channels.get<T>(this.id)
   }
 }
@@ -137,10 +138,24 @@ export class Interaction extends SnowflakeBase {
     this.message = others.message
   }
 
-  isSlashCommand(): this is SlashCommandInteraction {
+  /**
+   * @deprecated Use isApplicationCommand instead
+   */
+  isSlashCommand(): this is ApplicationCommandInteraction {
     return this.type === InteractionType.APPLICATION_COMMAND
   }
 
+  /** Checks whether the Interaction is Ping (HTTP only) */
+  isPing(): boolean {
+    return this.type === InteractionType.PING
+  }
+
+  /** Checks whether the Interaction is Application Command */
+  isApplicationCommand(): this is ApplicationCommandInteraction {
+    return this.type === InteractionType.APPLICATION_COMMAND
+  }
+
+  /** Checks whether the Interaction is Message Component */
   isMessageComponent(): this is MessageComponentInteraction {
     return this.type === InteractionType.MESSAGE_COMPONENT
   }
@@ -313,7 +328,7 @@ export class Interaction extends SnowflakeBase {
       }
     }
 
-    const payload: any = {
+    const payload = {
       content: text,
       embeds:
         (option as WebhookMessageOptions)?.embed !== undefined
@@ -325,6 +340,9 @@ export class Interaction extends SnowflakeBase {
       files: (option as WebhookMessageOptions)?.files,
       tts: (option as WebhookMessageOptions)?.tts,
       allowed_mentions: (option as WebhookMessageOptions)?.allowedMentions,
+      flags:
+        ((option as WebhookMessageOptions)?.flags ?? 0) |
+        ((option as WebhookMessageOptions)?.ephemeral === true ? 64 : 0),
       components:
         (option as WebhookMessageOptions)?.components === undefined
           ? undefined
@@ -332,7 +350,9 @@ export class Interaction extends SnowflakeBase {
           ? (option as { components: CallableFunction }).components()
           : transformComponent(
               (option as { components: MessageComponentData[] }).components
-            )
+            ),
+      username: undefined as undefined | string,
+      avatar: undefined as undefined | string
     }
 
     if ((option as WebhookMessageOptions)?.name !== undefined) {
@@ -372,7 +392,7 @@ export class Interaction extends SnowflakeBase {
       content?: string
       components?: MessageComponentData[]
       embeds?: Array<Embed | EmbedPayload>
-      file?: any
+      file?: MessageAttachment
       allowed_mentions?: {
         parse?: string
         roles?: string[]

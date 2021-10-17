@@ -11,7 +11,7 @@ import { ClientPresence } from '../structures/presence.ts'
 import { EmojisManager } from '../managers/emojis.ts'
 import { ActivityGame, ClientActivity } from '../types/presence.ts'
 import type { Extension } from '../commands/extension.ts'
-import { SlashClient } from '../interactions/slashClient.ts'
+import { InteractionsClient } from '../interactions/client.ts'
 import { ShardManager } from './shard.ts'
 import { Application } from '../structures/application.ts'
 import { Invite } from '../structures/invite.ts'
@@ -24,6 +24,8 @@ import { fetchAuto } from '../../deps.ts'
 import type { DMChannel } from '../structures/dmChannel.ts'
 import { Template } from '../structures/template.ts'
 import { VoiceManager } from './voice.ts'
+import { StickersManager } from '../managers/stickers.ts'
+import { createOAuthURL, OAuthURLOptions } from '../utils/oauthURL.ts'
 
 /** OS related properties sent with Gateway Identify */
 export interface ClientProperties {
@@ -121,8 +123,10 @@ export class Client extends HarmonyEventEmitter<ClientEvents> {
   /** Client Properties */
   readonly clientProperties!: ClientProperties
 
-  /** Slash-Commands Management client */
-  slash: SlashClient
+  /** Interactions Client */
+  interactions: InteractionsClient
+  /** @deprecated Alias to Interactions client in `client.interactions`, use original property instead */
+  slash: InteractionsClient
   /** Whether to fetch Gateway info or not */
   fetchGatewayInfo: boolean = true
 
@@ -137,6 +141,8 @@ export class Client extends HarmonyEventEmitter<ClientEvents> {
   readonly channels: ChannelsManager = new ChannelsManager(this)
   /** Channels Manager, providing cache interface to Channels */
   readonly emojis: EmojisManager = new EmojisManager(this)
+  /** Stickers Manager, providing cache interface to (Guild) Stickers and API interfacing */
+  readonly stickers: StickersManager = new StickersManager(this)
 
   /** Last READY timestamp */
   upSince?: Date
@@ -249,7 +255,7 @@ export class Client extends HarmonyEventEmitter<ClientEvents> {
       Object.assign(restOptions, options.restOptions)
     this.rest = new RESTManager(restOptions)
 
-    this.slash = new SlashClient({
+    this.slash = this.interactions = new InteractionsClient({
       id: () => this.getEstimatedID(),
       client: this,
       enabled: options.enableSlash
@@ -268,11 +274,18 @@ export class Client extends HarmonyEventEmitter<ClientEvents> {
   }
 
   /** Changes Presence of Client */
-  setPresence(presence: ClientPresence | ClientActivity | ActivityGame): void {
+  setPresence(
+    presence: ClientPresence | ClientActivity | ActivityGame,
+    onlyInShards: number[] = []
+  ): void {
     if (presence instanceof ClientPresence) {
       this.presence = presence
     } else this.presence = new ClientPresence(presence)
-    this.gateway?.sendPresence(this.presence.create())
+    this.shards.list.forEach((shard) => {
+      if (onlyInShards.length !== 0 && onlyInShards.includes(shard.shardID))
+        return
+      shard.sendPresence(this.presence.create())
+    })
   }
 
   /** Emits debug event */
@@ -375,7 +388,7 @@ export class Client extends HarmonyEventEmitter<ClientEvents> {
     this.gateway.sessionID = undefined
     await this.gateway.cache.delete('seq')
     await this.gateway.cache.delete('session_id')
-    this.gateway.close()
+    this.shards.destroy()
     this.user = undefined
     this.upSince = undefined
     return this
@@ -407,7 +420,7 @@ export class Client extends HarmonyEventEmitter<ClientEvents> {
   }
 
   async emit(event: keyof ClientEvents, ...args: any[]): Promise<void> {
-    const collectors: Collector[] = []
+    const collectors: Array<Collector<unknown[]>> = []
     for (const collector of this.collectors.values()) {
       if (collector.event === event) collectors.push(collector)
     }
@@ -470,6 +483,18 @@ export class Client extends HarmonyEventEmitter<ClientEvents> {
   async fetchTemplate(code: string): Promise<Template> {
     const payload = await this.rest.api.guilds.templates[code].get()
     return new Template(this, payload)
+  }
+
+  /** Creates an OAuth2 URL */
+  createOAuthURL(options: Omit<OAuthURLOptions, 'clientID'>): string {
+    return createOAuthURL(
+      Object.assign(
+        {
+          clientID: this.getEstimatedID()
+        },
+        options
+      )
+    )
   }
 }
 
